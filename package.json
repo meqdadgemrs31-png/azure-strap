@@ -75,5 +75,6 @@
     "name": "Azure Strap",
     "email": "azurestrap@users.noreply.github.com"
   },
-  "homepage": "https://github.com/meqdadgemrs31-png/azure-strap"
+  "homepage": "https://github.com/meqdadgemrs31-png/azure-strap",
+  "license": "MIT"
 }

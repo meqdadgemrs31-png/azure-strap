@@ -201,6 +201,13 @@ ipcMain.handle('listMods', () => {
 
 ipcMain.handle('openData', () => shell.openPath(app.getPath('userData')));
 ipcMain.handle('restart', () => { app.relaunch(); app.exit(0); });
+ipcMain.handle('pickIcon', async e => {
+  const parent = BrowserWindow.fromWebContents(e.sender);
+  const r = await dialog.showOpenDialog(parent, { properties: ['openFile'], filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'ico'] }] });
+  if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+  try { return { ok: icons.setCustom(r.filePaths[0]), icons: icons.list() }; }
+  catch { return { ok: false }; }
+});
 ipcMain.handle('shortcuts', (_e, where) => icons.shortcuts(settings.robloxIcon, where));
 
 ipcMain.handle('closeSelf', e => { const w = BrowserWindow.fromWebContents(e.sender); if (w) w.close(); });

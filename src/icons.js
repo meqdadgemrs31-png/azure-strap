@@ -7,8 +7,12 @@ const { pathToFileURL } = require('url');
 const ASSETS = path.join(__dirname, '..', 'assets');
 const YEARS = ['2006', '2009', '2012', '2015', '2017', '2019', '2022', '2026'];
 
+const customFile = () => path.join(app.getPath('userData'), 'icons', 'custom.png');
+
 function file(id) {
-  if (id !== 'azure') {
+  if (id === 'custom') {
+    if (fs.existsSync(customFile())) return customFile();
+  } else if (id !== 'azure') {
     const f = path.join(ASSETS, 'roblox-icons', id + '.png');
     if (fs.existsSync(f)) return f;
   }
@@ -16,8 +20,25 @@ function file(id) {
 }
 
 function list() {
-  return [{ id: 'azure', label: 'Azure Strap' }, ...YEARS.map(y => ({ id: y, label: y }))]
-    .map(i => ({ ...i, url: pathToFileURL(file(i.id)).href }));
+  const items = [{ id: 'azure', label: 'Azure Strap' }, ...YEARS.map(y => ({ id: y, label: y }))];
+  if (fs.existsSync(customFile())) items.push({ id: 'custom', label: 'Custom' });
+  return items.map(i => {
+    let url = pathToFileURL(file(i.id)).href;
+    if (i.id === 'custom') url += '?v=' + Math.round(fs.statSync(customFile()).mtimeMs);
+    return { ...i, url };
+  });
+}
+
+// The person's own picture: cropped to a centred square and saved as 256x256 PNG.
+function setCustom(src) {
+  const img = nativeImage.createFromPath(src);
+  if (img.isEmpty()) return false;
+  const { width, height } = img.getSize();
+  const side = Math.min(width, height);
+  const square = img.crop({ x: Math.floor((width - side) / 2), y: Math.floor((height - side) / 2), width: side, height: side });
+  fs.mkdirSync(path.dirname(customFile()), { recursive: true });
+  fs.writeFileSync(customFile(), square.resize({ width: 256, height: 256, quality: 'best' }).toPNG());
+  return true;
 }
 
 function image(id) { return nativeImage.createFromPath(file(id)); }
@@ -38,7 +59,7 @@ function ico(id) {
   return out;
 }
 
-// Windows only: Roblox shortcut wearing the chosen icon, and an Azure Strap shortcut.
+// Windows only: one "Azure Strap" shortcut wearing the chosen icon.
 function shortcuts(robloxIcon, where) {
   if (process.platform !== 'win32') return { ok: false, reason: 'unsupported' };
   if (!app.isPackaged) return { ok: false, reason: 'dev' };
@@ -47,17 +68,13 @@ function shortcuts(robloxIcon, where) {
   if (where === 'startmenu' || where === 'both') targets.push(path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs'));
   for (const dir of targets) {
     fs.mkdirSync(dir, { recursive: true });
-    shell.writeShortcutLink(path.join(dir, 'Roblox.lnk'), 'create', {
-      target: process.execPath, args: '--launch', icon: ico(robloxIcon), iconIndex: 0,
-      description: 'Launch Roblox with Azure Strap'
-    });
-  }
-  if (targets.length) {
-    shell.writeShortcutLink(path.join(targets[0], 'Azure Strap.lnk'), 'create', {
-      target: process.execPath, icon: ico('azure'), iconIndex: 0, description: 'Azure Strap'
+    // Older versions made a separate "Roblox" shortcut. Remove it, keep only Azure Strap.
+    try { fs.rmSync(path.join(dir, 'Roblox.lnk'), { force: true }); } catch { /* ignore */ }
+    shell.writeShortcutLink(path.join(dir, 'Azure Strap.lnk'), 'create', {
+      target: process.execPath, icon: ico(robloxIcon), iconIndex: 0, description: 'Azure Strap'
     });
   }
   return { ok: true };
 }
 
-module.exports = { list, image, file, shortcuts };
+module.exports = { list, image, file, shortcuts, setCustom };

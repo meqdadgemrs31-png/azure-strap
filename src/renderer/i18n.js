@@ -60,11 +60,12 @@ window.I18N = {
     theme_t: 'Theme', theme_d: 'Light, dark, or follow your system.',
     th_system: 'Use system setting', th_light: 'Light', th_dark: 'Dark',
     lang_t: 'Language', lang_d: 'The language used inside Azure Strap.',
-    icon_t: 'Roblox icon', icon_d: 'Used for your Roblox shortcuts and the launch window. Pick any era from 2006 to 2026, or keep the Azure Strap icon.',
+    icon_t: 'Icon', icon_d: 'Used for your Azure Strap shortcut and the launch window. Pick an era, keep the Azure Strap icon, or use your own image.',
+    iconPick: 'Use my own image...', iconPickFail: 'Could not use that image.',
 
     shortcuts_t: 'Shortcuts', shortcuts_d: 'Create shortcuts that launch Roblox through Azure Strap.',
-    scDesktop_t: 'Desktop shortcut', scDesktop_d: 'Adds Roblox and Azure Strap to your desktop.',
-    scStart_t: 'Start menu shortcut', scStart_d: 'Adds Roblox and Azure Strap to your Start menu.',
+    scDesktop_t: 'Desktop shortcut', scDesktop_d: 'Adds Azure Strap to your desktop.',
+    scStart_t: 'Start menu shortcut', scStart_d: 'Adds Azure Strap to your Start menu.',
     create: 'Create', scDone: 'Shortcuts created.', scFail: 'Shortcuts need the installed app on Windows.',
 
     settings_t: 'Settings', settings_d: 'General options for Azure Strap.',
@@ -131,7 +132,7 @@ window.I18N = {
     format: 'ترتيب', reset: 'مسح',
 
     appearance_t: 'المظهر', theme_t: 'الثيم', th_system: 'حسب النظام', th_light: 'فاتح', th_dark: 'داكن',
-    lang_t: 'اللغة', icon_t: 'شعار روبلوكس',
+    lang_t: 'اللغة', icon_t: 'الشعار', iconPick: 'استخدم صورتي الخاصة...', iconPickFail: 'ما قدرنا نستخدم الصورة.',
 
     shortcuts_t: 'الاختصارات', scDesktop_t: 'اختصار سطح المكتب', scStart_t: 'اختصار قائمة ابدأ',
     create: 'إنشاء', scDone: 'تم إنشاء الاختصارات.', scFail: 'الاختصارات تحتاج النسخة المثبتة على ويندوز.',

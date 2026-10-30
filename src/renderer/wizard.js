@@ -70,6 +70,12 @@ const VIEWS = {
       grid.append(b);
     });
     body.append(grid);
+    const own = mk('button', 'btn ghost', esc(t('iconPick'))); own.style.marginTop = '12px';
+    own.addEventListener('click', async () => {
+      const r = await window.azure.pickIcon();
+      if (r.ok) { st.icons = r.icons; pick.robloxIcon = 'custom'; render(); }
+    });
+    body.append(own);
     root.append(body, navBar());
   },
 

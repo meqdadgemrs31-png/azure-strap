@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('azure', {
   openData: call('openData'),
   restart: call('restart'),
   shortcuts: call('shortcuts'),
+  pickIcon: call('pickIcon'),
   closeSelf: call('closeSelf'),
   minimizeSelf: call('minimizeSelf'),
   wizardInstall: call('wizardInstall'),

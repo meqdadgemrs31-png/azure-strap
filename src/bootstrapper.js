@@ -15,9 +15,25 @@ const isWin = process.platform === 'win32';
 const isMac = process.platform === 'darwin';
 const isLinux = process.platform === 'linux';
 
-const CS = 'https://clientsettingscdn.roblox.com/v2/client-version/';
-const CDN = 'https://setup.rbxcdn.com/';
+// Several addresses for the same files: if one is slow or blocked, the next one is tried.
+const CS_URLS = ['https://clientsettingscdn.roblox.com/v2/client-version/', 'https://clientsettings.roblox.com/v2/client-version/'];
+const MIRRORS = [
+  'https://setup.rbxcdn.com/',
+  'https://setup-ak.rbxcdn.com/',
+  'https://setup-cfly.rbxcdn.com/',
+  'https://roblox-setup.cachefly.net/',
+  'https://s3.amazonaws.com/setup.roblox.com/'
+];
 const UA = 'AzureStrap/1.0';
+const REQUEST_MS = 15000;  // small requests must answer within this time
+const STALL_MS = 30000;    // a download that gets no data for this long is retried
+
+// Electron's own network stack follows the system proxy / VPN settings; plain Node fetch does not.
+let httpFetch = (url, opts) => fetch(url, opts);
+try {
+  const { net } = require('electron');
+  if (net && typeof net.fetch === 'function') httpFetch = (url, opts) => net.fetch(url, opts);
+} catch { /* not running inside Electron */ }
 
 // Where each Windows package is extracted inside the version folder.
 const PKG_DIRS = {
@@ -50,16 +66,23 @@ const BLOCKED_MOD_EXT = new Set(['.exe', '.dll', '.bat', '.cmd', '.ps1', '.vbs',
 
 /* ---------- helpers ---------- */
 
-async function getJSON(url) {
-  const r = await fetch(url, { headers: { 'User-Agent': UA } });
-  if (!r.ok) throw new Error(`Request failed (${r.status}): ${url}`);
-  return r.json();
+async function requestText(url) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), REQUEST_MS);
+  try {
+    const r = await httpFetch(url, { headers: { 'User-Agent': UA }, signal: ac.signal });
+    if (!r.ok) throw new Error(`Request failed (${r.status}): ${url}`);
+    return await r.text();
+  } finally { clearTimeout(timer); }
 }
 
-async function getText(url) {
-  const r = await fetch(url, { headers: { 'User-Agent': UA } });
-  if (!r.ok) throw new Error(`Request failed (${r.status}): ${url}`);
-  return r.text();
+// Try each mirror in turn for a small file (like the package list).
+async function textFromMirrors(rel) {
+  let last;
+  for (const base of MIRRORS) {
+    try { return await requestText(base + rel); } catch (e) { last = e; }
+  }
+  throw last;
 }
 
 async function md5(file) {
@@ -68,28 +91,38 @@ async function md5(file) {
   return h.digest('hex');
 }
 
-async function download(url, dest, onBytes, expectedMd5) {
+// `rel` is the file path after the host. Every retry uses the next mirror, and a download
+// that stops receiving data for STALL_MS is cancelled and retried instead of hanging forever.
+async function download(rel, dest, onBytes, expectedMd5) {
   if (fs.existsSync(dest) && (!expectedMd5 || (await md5(dest)) === expectedMd5)) return; // cached
   let lastErr;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 0; attempt < 6; attempt++) {
+    let fileBytes = 0;
+    const ac = new AbortController();
+    let timer;
+    const kick = () => { clearTimeout(timer); timer = setTimeout(() => ac.abort(), STALL_MS); };
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': UA } });
+      kick();
+      const res = await httpFetch(MIRRORS[attempt % MIRRORS.length] + rel, { headers: { 'User-Agent': UA }, signal: ac.signal });
       if (!res.ok || !res.body) throw new Error(`Download failed (${res.status})`);
       const counter = new Transform({
-        transform(chunk, _e, cb) { onBytes(chunk.length); cb(null, chunk); }
+        transform(chunk, _e, cb) { kick(); fileBytes += chunk.length; onBytes(chunk.length); cb(null, chunk); }
       });
-      await pipeline(Readable.fromWeb(res.body), counter, fs.createWriteStream(dest + '.tmp'));
+      await pipeline(Readable.fromWeb(res.body), counter, fs.createWriteStream(dest + '.tmp'), { signal: ac.signal });
+      clearTimeout(timer);
       await fsp.rename(dest + '.tmp', dest);
       if (expectedMd5 && (await md5(dest)) !== expectedMd5) throw new Error('Checksum mismatch');
       return;
     } catch (e) {
+      clearTimeout(timer);
+      onBytes(-fileBytes); // take back what this failed try counted
       lastErr = e;
       await fsp.rm(dest + '.tmp', { force: true });
       await fsp.rm(dest, { force: true });
-      await new Promise(r => setTimeout(r, 800 * attempt));
+      await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
     }
   }
-  throw lastErr;
+  throw new Error(`Could not download ${rel.split('/').pop()}: ${lastErr && lastErr.message ? lastErr.message : lastErr}`);
 }
 
 async function pool(items, limit, worker) {
@@ -103,8 +136,16 @@ async function pool(items, limit, worker) {
 /* ---------- version lookup ---------- */
 
 async function latest() {
-  const j = await getJSON(CS + (isWin ? 'WindowsPlayer' : 'MacPlayer'));
-  return { guid: j.clientVersionUpload, version: j.version };
+  const name = isWin ? 'WindowsPlayer' : 'MacPlayer';
+  let last;
+  for (const base of CS_URLS) {
+    try {
+      const j = JSON.parse(await requestText(base + name));
+      if (!j.clientVersionUpload) throw new Error('Unexpected answer from Roblox');
+      return { guid: j.clientVersionUpload, version: j.version };
+    } catch (e) { last = e; }
+  }
+  throw last;
 }
 
 /* ---------- install (into a .part folder, renamed only when complete) ---------- */
@@ -113,7 +154,7 @@ async function installWindows(info, dir, root, progress) {
   const dl = path.join(root, 'Downloads', info.guid);
   await fsp.mkdir(dl, { recursive: true });
 
-  const lines = (await getText(`${CDN}${info.guid}-rbxPkgManifest.txt`))
+  const lines = (await textFromMirrors(`${info.guid}-rbxPkgManifest.txt`))
     .split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const pkgs = [];
   for (let i = 1; i + 3 < lines.length; i += 4) {
@@ -125,9 +166,9 @@ async function installWindows(info, dir, root, progress) {
   let got = 0;
 
   await pool(pkgs, 4, async p => {
-    await download(`${CDN}${info.guid}-${p.name}`, path.join(dl, p.name), n => {
+    await download(`${info.guid}-${p.name}`, path.join(dl, p.name), n => {
       got += n;
-      progress(Math.min(80, (got / total) * 80), 'downloading');
+      progress(Math.max(0, Math.min(80, (got / total) * 80)), 'downloading');
     }, p.md5);
   });
 
@@ -157,14 +198,14 @@ async function installMac(info, dir, root, progress) {
   const zip = path.join(dl, 'RobloxPlayer.zip');
 
   const urls = [];
-  if (process.arch === 'arm64') urls.push(`${CDN}mac/arm64/${info.guid}-RobloxPlayer.zip`);
-  urls.push(`${CDN}mac/${info.guid}-RobloxPlayer.zip`);
+  if (process.arch === 'arm64') urls.push(`mac/arm64/${info.guid}-RobloxPlayer.zip`);
+  urls.push(`mac/${info.guid}-RobloxPlayer.zip`);
 
   let ok = false, lastErr;
   for (const u of urls) {
     try {
       let got = 0;
-      await download(u, zip, n => { got += n; progress(Math.min(80, got / 2.5e6), 'downloading'); });
+      await download(u, zip, n => { got += n; progress(Math.max(0, Math.min(80, got / 2.5e6)), 'downloading'); });
       ok = true; break;
     } catch (e) { lastErr = e; }
   }

@@ -193,6 +193,13 @@ const PAGES = {
       grid.append(b);
     });
     c.append(grid);
+    const pickRow = el('div', 'btn-row');
+    pickRow.append(button(t('iconPick'), async () => {
+      const r = await window.azure.pickIcon();
+      if (r.ok) { st.icons = r.icons; draft.robloxIcon = 'custom'; markDirty(); build(); }
+      else if (!r.canceled) $('msg').textContent = t('iconPickFail');
+    }));
+    c.append(pickRow);
     root.append(c);
   },
 
