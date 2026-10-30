@@ -51,6 +51,9 @@ const PKG_DIRS = {
   'content-textures3.zip': 'PlatformContent/pc/textures/',
   'content-terrain.zip': 'PlatformContent/pc/terrain/',
   'content-platform-fonts.zip': 'PlatformContent/pc/fonts/',
+  // Roblox's compressed client-settings dictionary is shipped separately.
+  // Without this package Roblox logs a missing Zstd dictionary on startup.
+  'content-platform-dictionaries.zip': 'PlatformContent/pc/shared_compression_dictionaries/',
   'extracted-content-avatar.zip': 'ExtraContent/avatar/',
   'extracted-content-configs.zip': 'ExtraContent/configs/',
   'extracted-content-fonts.zip': 'ExtraContent/fonts/',
@@ -243,6 +246,24 @@ async function installMac(info, dir, root, progress) {
   progress(100, 'installing');
 }
 
+async function validateWindowsInstall(dir) {
+  // Do not mark a partially extracted client as installed. Roblox 0.745+ loads
+  // UniversalApp.rbxm as a mandatory local core patch and exits immediately if it
+  // is missing, even though RobloxPlayerBeta.exe itself is present.
+  const required = [
+    path.join(dir, 'RobloxPlayerBeta.exe'),
+    path.join(dir, 'content', 'models', 'UniversalApp', 'UniversalApp.rbxm')
+  ];
+  const missing = [];
+  for (const file of required) {
+    try {
+      const st = await fsp.stat(file);
+      if (!st.isFile() || st.size === 0) missing.push(path.relative(dir, file));
+    } catch { missing.push(path.relative(dir, file)); }
+  }
+  return { ok: missing.length === 0, missing };
+}
+
 async function ensureInstalled(root, progress, opts = {}) {
   const versions = path.join(root, 'Versions');
   await fsp.mkdir(versions, { recursive: true });
@@ -256,11 +277,28 @@ async function ensureInstalled(root, progress, opts = {}) {
     return { dir: path.join(versions, have[have.length - 1]), version: have[have.length - 1], offline: true };
   }
   const dir = path.join(versions, info.guid);
-  if (!fs.existsSync(path.join(dir, '.azure-ok'))) {
+  let installed = fs.existsSync(path.join(dir, '.azure-ok'));
+  if (installed && isWin) {
+    const check = await validateWindowsInstall(dir);
+    if (!check.ok) {
+      // Older Azure Strap builds could mark an incomplete extraction as complete.
+      // Remove the marker and reinstall cleanly instead of launching a broken client.
+      await fsp.rm(path.join(dir, '.azure-ok'), { force: true });
+      installed = false;
+    }
+  }
+  if (!installed) {
     await fsp.rm(dir, { recursive: true, force: true });
     progress(0, 'downloading');
     if (isWin) await installWindows(info, dir, root, progress);
     else await installMac(info, dir, root, progress);
+    if (isWin) {
+      const check = await validateWindowsInstall(dir);
+      if (!check.ok) {
+        await fsp.rm(dir, { recursive: true, force: true });
+        throw new Error(`Roblox installation is incomplete. Missing required files: ${check.missing.join(', ')}. Please retry the installation.`);
+      }
+    }
     await fsp.writeFile(path.join(dir, '.azure-ok'), info.version);
     if (opts.prune !== false) {
       for (const d of await fsp.readdir(versions)) {
