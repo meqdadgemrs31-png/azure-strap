@@ -70,5 +70,10 @@
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false
     }
-  }
+  },
+  "author": {
+    "name": "Azure Strap",
+    "email": "azurestrap@users.noreply.github.com"
+  },
+  "homepage": "https://github.com/meqdadgemrs31-png/azure-strap"
 }
