@@ -4,7 +4,7 @@ const fs = require('fs');
 const bs = require('./bootstrapper');
 const store = require('./store');
 const icons = require('./icons');
-const extract = require('extract-zip');
+const { extractZip } = require('./unzip');
 
 let settings = null;
 let busy = false;
@@ -269,7 +269,7 @@ ipcMain.handle('packsImport', async e => {
     const dest = path.join(packsDir(), name);
     fs.mkdirSync(dest, { recursive: true });
     if (isDir) await fs.promises.cp(src, dest, { recursive: true });
-    else await extract(src, { dir: path.resolve(dest) });
+    else await extractZip(src, dest);
 
     // If the zip wraps everything in one folder, lift its contents up one level.
     const top = fs.readdirSync(dest, { withFileTypes: true });

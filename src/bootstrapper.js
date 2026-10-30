@@ -8,7 +8,7 @@ const { Readable, Transform } = require('stream');
 const { pipeline } = require('stream/promises');
 const { spawn, execFile } = require('child_process');
 const { promisify } = require('util');
-const extract = require('extract-zip');
+const { extractZip } = require('./unzip');
 
 const execFileP = promisify(execFile);
 const isWin = process.platform === 'win32';
@@ -180,7 +180,7 @@ async function installWindows(info, dir, root, progress) {
   for (const p of pkgs) {
     const target = path.join(part, PKG_DIRS[p.name] ?? '');
     await fsp.mkdir(target, { recursive: true });
-    await extract(path.join(dl, p.name), { dir: path.resolve(target) });
+    await extractZip(path.join(dl, p.name), target);
     progress(80 + (++done / pkgs.length) * 20, 'installing');
   }
 
