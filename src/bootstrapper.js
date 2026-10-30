@@ -150,6 +150,18 @@ async function latest() {
 
 /* ---------- install (into a .part folder, renamed only when complete) ---------- */
 
+// For error messages: size and first bytes, so a broken download can be recognised.
+async function describeFile(file) {
+  try {
+    const st = await fsp.stat(file);
+    const fh = await fsp.open(file, 'r');
+    const b = Buffer.alloc(8);
+    await fh.read(b, 0, 8, 0);
+    await fh.close();
+    return `${st.size} bytes, starts with ${b.toString('hex')}`;
+  } catch { return 'file unreadable'; }
+}
+
 async function installWindows(info, dir, root, progress) {
   const dl = path.join(root, 'Downloads', info.guid);
   await fsp.mkdir(dl, { recursive: true });
@@ -180,7 +192,9 @@ async function installWindows(info, dir, root, progress) {
   for (const p of pkgs) {
     const target = path.join(part, PKG_DIRS[p.name] ?? '');
     await fsp.mkdir(target, { recursive: true });
-    await extractZip(path.join(dl, p.name), target);
+    const zipFile = path.join(dl, p.name);
+    try { await extractZip(zipFile, target); }
+    catch (e) { throw new Error(`${p.name}: ${e.message} (${await describeFile(zipFile)})`); }
     progress(80 + (++done / pkgs.length) * 20, 'installing');
   }
 
