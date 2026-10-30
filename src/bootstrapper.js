@@ -162,18 +162,26 @@ async function describeFile(file) {
   } catch { return 'file unreadable'; }
 }
 
+// The package list is: a version line, then 4 lines per package (name, md5, packed size, size).
+// Only .zip packages are installed. The list also names RobloxPlayerInstaller.exe (Roblox's own
+// installer), which is not an archive and not needed here, and the optional WebView2 installer.
+function parseManifest(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const pkgs = [];
+  for (let i = 1; i + 3 < lines.length; i += 4) {
+    const name = lines[i];
+    if (!/\.zip$/i.test(name)) continue;
+    if (name === 'WebView2RuntimeInstaller.zip') continue;
+    pkgs.push({ name, md5: lines[i + 1], size: Number(lines[i + 2]) });
+  }
+  return pkgs;
+}
+
 async function installWindows(info, dir, root, progress) {
   const dl = path.join(root, 'Downloads', info.guid);
   await fsp.mkdir(dl, { recursive: true });
 
-  const lines = (await textFromMirrors(`${info.guid}-rbxPkgManifest.txt`))
-    .split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  const pkgs = [];
-  for (let i = 1; i + 3 < lines.length; i += 4) {
-    const name = lines[i];
-    if (name === 'WebView2RuntimeInstaller.zip') continue; // not needed to play
-    pkgs.push({ name, md5: lines[i + 1], size: Number(lines[i + 2]) });
-  }
+  const pkgs = parseManifest(await textFromMirrors(`${info.guid}-rbxPkgManifest.txt`));
   const total = pkgs.reduce((a, p) => a + p.size, 0) || 1;
   let got = 0;
 
@@ -443,7 +451,7 @@ function launchSober(uri) {
 
 module.exports = {
   isWin, isMac, isLinux,
-  ensureInstalled, applySettings, launch,
+  ensureInstalled, applySettings, launch, parseManifest,
   isRunning, holdMultiInstanceMutex, tunePriority, closeCrashHandler, runCleaner,
   soberInstalled, installSober, applySoberSettings, launchSober
 };
