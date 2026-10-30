@@ -76,7 +76,7 @@ window.I18N = {
 
     // statuses
     idle: 'Ready to play', checking: 'Checking for updates', downloading: 'Downloading Roblox',
-    installing: 'Installing Roblox', launching: 'Launching Roblox', running: 'Roblox is running',
+    installing: 'Installing Roblox', installingWebView2: 'Installing a Windows component Roblox needs...', launching: 'Launching Roblox', running: 'Roblox is running',
     installingSober: 'Installing Sober (Roblox for Linux)', offline: 'Offline, using installed version',
     cancel: 'Cancel',
 
@@ -142,7 +142,7 @@ window.I18N = {
     disclaimer: 'Azure Strap مو من صنع شركة روبلوكس وما له علاقة فيها. يحمّل النسخة الرسمية ولا يعدّل على كود اللعبة.',
 
     idle: 'جاهز للعب', checking: 'جاري البحث عن تحديثات', downloading: 'جاري تحميل روبلوكس',
-    installing: 'جاري تثبيت روبلوكس', launching: 'جاري تشغيل روبلوكس', running: 'روبلوكس شغّال',
+    installing: 'جاري تثبيت روبلوكس', installingWebView2: 'جاري تثبيت مكوّن ويندوز يحتاجه روبلوكس...', launching: 'جاري تشغيل روبلوكس', running: 'روبلوكس شغّال',
     installingSober: 'جاري تثبيت Sober (روبلوكس للينكس)', offline: 'بدون انترنت، استخدمنا النسخة المثبتة',
     cancel: 'إلغاء',
 

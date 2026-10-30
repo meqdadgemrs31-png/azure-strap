@@ -165,13 +165,13 @@ async function describeFile(file) {
 // The package list is: a version line, then 4 lines per package (name, md5, packed size, size).
 // Only .zip packages are installed. The list also names RobloxPlayerInstaller.exe (Roblox's own
 // installer), which is not an archive and not needed here, and the optional WebView2 installer.
-function parseManifest(text) {
+function parseManifest(text, keepRuntimeInstaller = false) {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const pkgs = [];
   for (let i = 1; i + 3 < lines.length; i += 4) {
     const name = lines[i];
     if (!/\.zip$/i.test(name)) continue;
-    if (name === 'WebView2RuntimeInstaller.zip') continue;
+    if (name === 'WebView2RuntimeInstaller.zip' && !keepRuntimeInstaller) continue;
     pkgs.push({ name, md5: lines[i + 1], size: Number(lines[i + 2]) });
   }
   return pkgs;
@@ -443,6 +443,92 @@ async function applySoberSettings(s) {
   await fsp.writeFile(file, JSON.stringify(cfg, null, 2));
 }
 
+/* ---------- launch with a check that Roblox really started ---------- */
+
+const hexCode = c => '0x' + (Number(c) >>> 0).toString(16).toUpperCase();
+const CODE_HINTS = {
+  0xC0000135: ' Windows is missing a file Roblox needs. Install "Microsoft Visual C++ Redistributable 2015-2022 (x64)" and try again.',
+  0xC000007B: ' Windows is missing a file Roblox needs. Install "Microsoft Visual C++ Redistributable 2015-2022 (x64)" and try again.'
+};
+
+// Waits up to tries * stepMs for the game to appear. Throws a readable error if it
+// could not start, or if it closed right away (instead of failing silently).
+async function watchLaunch(child, isUp, stepMs = 1000, tries = 12) {
+  let exited = false, exitCode = null, spawnErr = null;
+  child.once('error', e => { spawnErr = e; });
+  child.once('exit', c => { exited = true; exitCode = c; });
+  for (let i = 0; i < tries; i++) {
+    await sleep(stepMs);
+    if (spawnErr) throw new Error(`Windows would not start Roblox: ${spawnErr.message}`);
+    if (await isUp()) return;
+    if (exited) {
+      const hint = CODE_HINTS[Number(exitCode) >>> 0] || '';
+      throw new Error(`Roblox closed right away (exit code ${exitCode === null ? 'none' : hexCode(exitCode)}).${hint}`);
+    }
+  }
+  throw new Error(`Roblox did not start within ${Math.round((stepMs * tries) / 1000)} seconds.`);
+}
+
+async function launchChecked(dir, uri) {
+  if (!isWin) { launch(dir, uri); return; }
+  const exe = path.join(dir, 'RobloxPlayerBeta.exe');
+  if (!fs.existsSync(exe)) {
+    await fsp.rm(path.join(dir, '.azure-ok'), { force: true }); // so the next try installs it again
+    const found = (await fsp.readdir(dir).catch(() => [])).slice(0, 10).join(', ') || 'nothing';
+    throw new Error(`RobloxPlayerBeta.exe is missing. Press Try again to install Roblox again. (found: ${found})`);
+  }
+  const child = spawn(exe, [uri || '--app'], { detached: true, stdio: 'ignore', cwd: dir });
+  await watchLaunch(child, isRunning);
+  child.unref();
+}
+
+/* ---------- Windows: Roblox's app screens need the WebView2 runtime ---------- */
+
+const WV2 = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+
+async function webview2Installed() {
+  const keys = [
+    `HKLM\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\${WV2}`,
+    `HKLM\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\${WV2}`,
+    `HKCU\\Software\\Microsoft\\EdgeUpdate\\Clients\\${WV2}`
+  ];
+  for (const k of keys) {
+    try {
+      const { stdout } = await execFileP('reg', ['query', k, '/v', 'pv'], { windowsHide: true });
+      const m = /pv\s+REG_SZ\s+(\S+)/i.exec(stdout);
+      if (m && m[1] !== '0.0.0.0') return true;
+    } catch { /* key not present */ }
+  }
+  return false;
+}
+
+function findExe(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) { const r = findExe(p); if (r) return r; }
+    else if (/\.exe$/i.test(e.name)) return p;
+  }
+  return null;
+}
+
+// Installs Microsoft's WebView2 runtime (from Roblox's own package list) only when it is missing.
+async function ensureWebView2(root, guid, progress) {
+  if (!isWin || (await webview2Installed())) return;
+  progress(-1, 'installingWebView2');
+  const pkg = parseManifest(await textFromMirrors(`${guid}-rbxPkgManifest.txt`), true).find(p => p.name === 'WebView2RuntimeInstaller.zip');
+  if (!pkg) return;
+  const dl = path.join(root, 'Downloads', 'webview2');
+  await fsp.mkdir(dl, { recursive: true });
+  const zip = path.join(dl, pkg.name);
+  await download(`${guid}-${pkg.name}`, zip, () => {}, pkg.md5);
+  const out = path.join(dl, 'x');
+  await fsp.rm(out, { recursive: true, force: true });
+  await extractZip(zip, out);
+  const exe = findExe(out);
+  if (exe) await execFileP(exe, ['/silent', '/install'], { windowsHide: true, timeout: 5 * 60 * 1000 });
+  await fsp.rm(dl, { recursive: true, force: true });
+}
+
 function launchSober(uri) {
   const args = ['run', SOBER];
   if (uri) args.push(uri);
@@ -451,7 +537,7 @@ function launchSober(uri) {
 
 module.exports = {
   isWin, isMac, isLinux,
-  ensureInstalled, applySettings, launch, parseManifest,
+  ensureInstalled, applySettings, launch, launchChecked, watchLaunch, ensureWebView2, parseManifest,
   isRunning, holdMultiInstanceMutex, tunePriority, closeCrashHandler, runCleaner,
   soberInstalled, installSober, applySoberSettings, launchSober
 };

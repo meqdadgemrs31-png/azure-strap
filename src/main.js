@@ -12,6 +12,12 @@ let keepAlive = false;
 let pendingUri = null;
 const wins = {};
 
+// A small text log next to the settings (Settings > Open data folder) to help find problems.
+const logFile = () => path.join(app.getPath('userData'), 'azure-strap.log');
+function log(msg) {
+  try { fs.appendFileSync(logFile(), `${new Date().toISOString()} ${msg}\n`); } catch { /* best effort */ }
+}
+
 const rootDir = () => path.join(app.getPath('userData'), 'Roblox');
 const modsDir = () => path.join(app.getPath('userData'), 'Mods');
 const packsDir = () => path.join(app.getPath('userData'), 'Packs');
@@ -114,9 +120,13 @@ async function play(uri) {
     if (rt) {
       broadcast('version', { version: rt.version, offline: !!rt.offline });
       await bs.applySettings(rt.dir, settings, modsDir(), packsDir());
+      try { await bs.ensureWebView2(rootDir(), path.basename(rt.dir), progress); }
+      catch (e) { log('WebView2 step skipped: ' + (e && e.message ? e.message : e)); }
       if (settings.multiInstance) bs.holdMultiInstanceMutex();
       broadcast('status', 'launching');
-      bs.launch(rt.dir, uri);
+      log(`launching Roblox ${rt.version} from ${rt.dir}`);
+      await bs.launchChecked(rt.dir, uri);
+      log('Roblox is running');
     } else {
       await bs.applySoberSettings(settings);
       broadcast('status', 'launching');
@@ -142,6 +152,7 @@ async function play(uri) {
     if (settings.closeOnLaunch) app.quit();
   } catch (e) {
     busy = false; keepAlive = false;
+    log('play failed: ' + (e && e.message ? e.message : e));
     broadcast('error', String(e && e.message ? e.message : e));
     broadcast('status', 'idle');
   }
